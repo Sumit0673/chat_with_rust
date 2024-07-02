@@ -5,6 +5,7 @@ use futures::{StreamExt, TryStreamExt};
 use log::{error, info};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::UnboundedSender;
+use tokio_stream::wrappers::BroadcastStream;
 use warp::ws::WebSocket;
 use warp::Filter;
 
@@ -84,9 +85,12 @@ impl Server {
             });
 
         let (tx, rx) = mpsc::unbounded_channel();
-        tokio::spawn(rx.forward(ws_sink));
+        tokio::spawn(async move {
+            rx.map(|message| Ok(message)).forward(ws_sink).await.unwrap();
+        });
+
         let writing = client
-            .write_output(output_receiver.into_stream())
+            .write_output(BroadcastStream::new(output_receiver))
             .try_for_each(|message| async {
                 tx.send(Ok(message)).unwrap();
                 Ok(())
@@ -99,7 +103,7 @@ impl Server {
             error!("Client connection error: {}", err);
         }
 
-        hub.on_disconnect(client.id).await;
+        hub.on_disconnect(client.id.as_u128().try_into().unwrap()).await;
         info!("Client {} disconnected", client.id);
     }
 }

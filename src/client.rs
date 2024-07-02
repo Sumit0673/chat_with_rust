@@ -3,12 +3,13 @@ use std::{error, result};
 
 use futures::stream::SplitStream;
 use futures::{future, Stream, StreamExt, TryStream, TryStreamExt};
-use tokio::time;
+use tokio::time::sleep;
 use uuid::Uuid;
 use warp::filters::ws::WebSocket;
 
 use crate::error::{Error, Result};
 use crate::proto::{InputParcel, OutputParcel};
+
 
 #[derive(Clone, Copy, Default)]
 pub struct Client {
@@ -25,10 +26,8 @@ impl Client {
         stream: SplitStream<WebSocket>,
     ) -> impl Stream<Item = Result<InputParcel>> {
         let client_id = self.id;
-        time::throttle(
-            Duration::from_millis(300),
-            stream
-                // Take only text messages
+        async_stream::stream! {
+            let mut stream = stream
                 .take_while(|message| {
                     future::ready(if let Ok(message) = message {
                         message.is_text()
@@ -36,15 +35,19 @@ impl Client {
                         false
                     })
                 })
-                // Deserialize JSON messages into proto::Input
                 .map(move |message| match message {
                     Err(err) => Err(Error::System(err.to_string())),
                     Ok(message) => {
                         let input = serde_json::from_str(message.to_str().unwrap())?;
                         Ok(InputParcel::new(client_id, input))
                     }
-                }),
-        )
+                });
+
+            while let Some(item) = stream.next().await {
+                yield item;
+                sleep(Duration::from_millis(300)).await;
+            }
+        }
     }
 
     pub fn write_output<S, E>(&self, stream: S) -> impl Stream<Item = Result<warp::ws::Message>>
