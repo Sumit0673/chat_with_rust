@@ -4,7 +4,7 @@
   <img src="./cover.jpg"/>
 </p>
 
-A chat app made with Rust and React.
+A chat application made with Rust.
 
 Source code for article [Building a Real-time Chat App in Rust and React](https://outcrawl.com/rust-react-realtime-chat).
 
